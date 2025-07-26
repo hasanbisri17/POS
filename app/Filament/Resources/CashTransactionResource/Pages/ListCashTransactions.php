@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\CashTransactionResource\Pages;
 
 use App\Filament\Resources\CashTransactionResource;
+use App\Filament\Widgets\CashSummaryWidget;
 use Filament\Actions;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Resources\Components\Tab;
@@ -17,6 +18,13 @@ class ListCashTransactions extends ListRecords
         return [
             Actions\CreateAction::make()
                 ->label('Tambah Transaksi'),
+        ];
+    }
+
+    protected function getHeaderWidgets(): array
+    {
+        return [
+            CashSummaryWidget::class,
         ];
     }
 

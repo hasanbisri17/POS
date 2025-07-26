@@ -11,6 +11,7 @@ use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Support\Facades\Hash;
+use Filament\Notifications\Notification;
 
 class UserResource extends Resource
 {
@@ -46,6 +47,34 @@ class UserResource extends Resource
             return false;
         }
         return auth()->user()->can('manage_users');
+    }
+
+    /**
+     * Check if user has related data that prevents deletion
+     */
+    protected static function checkUserRelatedData(User $user): array
+    {
+        $relatedData = [];
+
+        // Check cash transactions
+        $cashTransactionsCount = $user->cashTransactions()->count();
+        if ($cashTransactionsCount > 0) {
+            $relatedData[] = "Transaksi Kas: {$cashTransactionsCount} record";
+        }
+
+        // Check transactions
+        $transactionsCount = $user->transactions()->count();
+        if ($transactionsCount > 0) {
+            $relatedData[] = "Transaksi Penjualan: {$transactionsCount} record";
+        }
+
+        // Check stock movements
+        $stockMovementsCount = $user->stockMovements()->count();
+        if ($stockMovementsCount > 0) {
+            $relatedData[] = "Pergerakan Stok: {$stockMovementsCount} record";
+        }
+
+        return $relatedData;
     }
 
     public static function form(Form $form): Form
@@ -126,13 +155,55 @@ class UserResource extends Resource
                 Tables\Actions\DeleteAction::make()
                     ->label('Hapus')
                     ->modalHeading('Hapus User')
-                    ->modalDescription('Apakah Anda yakin ingin menghapus user ini?'),
+                    ->modalDescription('Apakah Anda yakin ingin menghapus user ini?')
+                    ->before(function (Tables\Actions\DeleteAction $action, User $record) {
+                        // Check if user has related data
+                        $relatedData = static::checkUserRelatedData($record);
+                        
+                        if (!empty($relatedData)) {
+                            // Show notification with detailed reason
+                            $message = "User '{$record->name}' tidak dapat dihapus karena masih memiliki data terkait:\n\n" . 
+                                      implode("\n", array_map(fn($item) => "• {$item}", $relatedData)) . 
+                                      "\n\nHapus atau transfer data terkait terlebih dahulu sebelum menghapus user ini.";
+                            
+                            Notification::make()
+                                ->title('Tidak Dapat Menghapus User')
+                                ->body($message)
+                                ->danger()
+                                ->persistent()
+                                ->send();
+                            
+                            // Cancel the delete action
+                            $action->cancel();
+                        }
+                    }),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\DeleteBulkAction::make()
                         ->label('Hapus User Terpilih')
-                        ->modalDescription('Apakah Anda yakin ingin menghapus user yang dipilih?'),
+                        ->modalDescription('Apakah Anda yakin ingin menghapus user yang dipilih?')
+                        ->before(function (Tables\Actions\DeleteBulkAction $action, $records) {
+                            foreach ($records as $record) {
+                                $relatedData = static::checkUserRelatedData($record);
+                                
+                                if (!empty($relatedData)) {
+                                    $message = "User '{$record->name}' tidak dapat dihapus karena masih memiliki data terkait:\n\n" . 
+                                              implode("\n", array_map(fn($item) => "• {$item}", $relatedData)) . 
+                                              "\n\nHapus atau transfer data terkait terlebih dahulu.";
+                                    
+                                    Notification::make()
+                                        ->title('Tidak Dapat Menghapus User')
+                                        ->body($message)
+                                        ->danger()
+                                        ->persistent()
+                                        ->send();
+                                    
+                                    $action->cancel();
+                                    return;
+                                }
+                            }
+                        }),
                 ]),
             ]);
     }
